@@ -16,7 +16,8 @@ import (
 	"go.opentelemetry.io/collector/extension/experimental/storage"
 )
 
-// persistentQueue provides a persistent queue implementation backed by file storage extension.
+// headDroppingQueue provides a persistent queue implementation backed by file storage extension, and drops the oldest/unconsumed
+// element when the queue is full.
 type headDroppingQueue[T any] struct {
 	set    PersistentQueueSettings[T]
 	logger *zap.Logger
