@@ -84,7 +84,7 @@ func NewPersistentQueueFactory[T itemsCounter](storageID *component.ID, factoryS
 		if set.DataType.String() != "" {
 			signal = globalsignal.MustNewSignal(set.DataType.String())
 		}
-		return queue.NewPersistentQueue[T](queue.PersistentQueueSettings[T]{
+		return queue.NewHeadDroppingQueue[T](queue.PersistentQueueSettings[T]{
 			Sizer:            sizerFromConfig[T](cfg),
 			Capacity:         capacityFromConfig(cfg),
 			Signal:           signal,
