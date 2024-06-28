@@ -154,7 +154,6 @@ func (pq *headDroppingQueue[T]) Offer(ctx context.Context, req T) error {
 			return fmt.Errorf("failed to delete oldest item from queue: %w", err)
 		}
 		pq.readIndex = newReadIndex
-		pq.logger.Info("Dropped oldest item from queue.....")
 	}
 
 	err = pq.putInternal(ctx, req)
