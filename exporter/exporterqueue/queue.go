@@ -75,7 +75,7 @@ func NewPersistentQueueFactory[T itemsCounter](storageID *component.ID, factoryS
 		return NewMemoryQueueFactory[T]()
 	}
 	return func(_ context.Context, set Settings, cfg Config) Queue[T] {
-		return queue.NewPersistentQueue[T](queue.PersistentQueueSettings[T]{
+		return queue.NewHeadDroppingQueue[T](queue.PersistentQueueSettings[T]{
 			Sizer:            sizerFromConfig[T](cfg),
 			Capacity:         capacityFromConfig(cfg),
 			Signal:           set.Signal,
