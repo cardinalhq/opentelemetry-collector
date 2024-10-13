@@ -35,9 +35,12 @@ func TestBasicOperations(t *testing.T) {
 	}()
 
 	// Add 3 elements to the queue, and consume immediately.
-	for i := 3; i > 0; i-- {
-		require.NoError(t, pq.Offer(context.Background(), newTracesRequest(1, 1)))
-		require.True(t, pq.Consume(func(context.Context, tracesRequest) error { return nil }))
+	for i := 1; i <= 3; i++ {
+		require.NoError(t, pq.Offer(context.Background(), newTracesRequest(i, i*2)))
+		idx, _, _, consumed := pq.Read(context.Background())
+		require.True(t, consumed)
+		require.Equal(t, uint64(i-1), idx)
+		pq.OnProcessingFinished(idx, nil)
 	}
 	require.Equal(t, uint64(3), pq.readIndex)
 	require.Equal(t, uint64(3), pq.writeIndex)
@@ -60,7 +63,4 @@ func TestHeadDroppingQueue_Eviction(t *testing.T) {
 
 	// The first element should be dropped.
 	require.Equal(t, 3, pq.Size())
-	for i := 3; i > 0; i-- {
-		require.True(t, pq.Consume(func(context.Context, tracesRequest) error { return nil }))
-	}
 }

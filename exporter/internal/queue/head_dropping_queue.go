@@ -86,8 +86,13 @@ func (pq *headDroppingQueue[T]) initPersistentContiguousStorage(ctx context.Cont
 // Consume applies the provided function on the head of queue.
 // The call blocks until there is an item available or the queue is stopped.
 // The function returns true when an item is consumed or false if the queue is stopped.
-func (pq *headDroppingQueue[T]) Consume(consumeFunc func(context.Context, T) error) bool {
+func (pq *headDroppingQueue[T]) Read(ctx context.Context) (uint64, context.Context, T, bool) {
 	for {
+		var (
+			req      T
+			consumed bool
+		)
+
 		pq.mu.Lock()
 		for pq.readIndex == pq.writeIndex && !pq.stopped {
 			pq.cond.Wait()
@@ -95,15 +100,14 @@ func (pq *headDroppingQueue[T]) Consume(consumeFunc func(context.Context, T) err
 
 		if pq.stopped {
 			pq.mu.Unlock()
-			return false
+			return 0, nil, req, false
 		}
 
-		req, onProcessingFinished, consumed := pq.getNextItem(context.Background())
+		req, index, consumed := pq.getNextItem(context.Background())
 		pq.mu.Unlock()
 
 		if consumed {
-			onProcessingFinished(consumeFunc(context.Background(), req))
-			return true
+			return index, ctx, req, true
 		}
 	}
 }
@@ -222,15 +226,15 @@ func (pq *headDroppingQueue[T]) putInternal(ctx context.Context, req T) error {
 
 // getNextItem pulls the next available item from the persistent storage along with a callback function that should be
 // called after the item is processed to clean up the storage. If no new item is available, returns false.
-func (pq *headDroppingQueue[T]) getNextItem(ctx context.Context) (T, func(error), bool) {
+func (pq *headDroppingQueue[T]) getNextItem(ctx context.Context) (T, uint64, bool) {
 	var request T
 
 	if pq.stopped {
-		return request, nil, false
+		return request, 0, false
 	}
 
 	if pq.readIndex == pq.writeIndex {
-		return request, nil, false
+		return request, 0, false
 	}
 
 	index := pq.readIndex
@@ -247,24 +251,11 @@ func (pq *headDroppingQueue[T]) getNextItem(ctx context.Context) (T, func(error)
 
 	if err != nil {
 		pq.logger.Debug("Failed to dispatch item", zap.Error(err))
-		return request, nil, false
+		return request, 0, false
 	}
 
 	pq.refClient++ // Increase the reference count
-	return request, func(consumeErr error) {
-		// Delete the item from the persistent storage after it was processed.
-		if err := pq.client.Batch(ctx, storage.DeleteOperation(getItemKey(index))); err != nil {
-			pq.logger.Error("Error deleting item from queue", zap.Error(err))
-		}
-
-		pq.refClient--
-		if pq.refClient == 0 && pq.stopped {
-			if err := pq.client.Close(ctx); err != nil {
-				pq.logger.Error("Error closing the storage client", zap.Error(err))
-			}
-		}
-
-	}, true
+	return request, index, true
 }
 
 func (pq *headDroppingQueue[T]) Size() int {
@@ -279,4 +270,19 @@ func (pq *headDroppingQueue[T]) Size() int {
 
 func (pq *headDroppingQueue[T]) Capacity() int {
 	return int(pq.set.Capacity)
+}
+
+func (pq *headDroppingQueue[T]) OnProcessingFinished(index uint64, consumeErr error) {
+	pq.mu.Lock()
+	defer func() {
+		if err := pq.unrefClient(context.Background()); err != nil {
+			pq.logger.Error("Error closing the storage client", zap.Error(err))
+		}
+		pq.mu.Unlock()
+	}()
+
+	// Delete the item from the persistent storage after it was processed.
+	if err := pq.client.Batch(context.Background(), storage.DeleteOperation(getItemKey(index))); err != nil {
+		pq.logger.Error("Error deleting item from queue", zap.Error(err))
+	}
 }
